@@ -7,17 +7,48 @@
 #include "application/AudioPlayerController.h"
 #include "application/MiniaudioMetaReader.h"
 #include "application/PlaybackScheduler.h"
+#include "application/GoogleAuthService.h"
 
-#include "external/httplib.h"
+#include "httplib.h"
+
+#include <iostream>
 
 int main()
 {
+    const std::string google_client_id = "191974541456-4qb5q4apnds2f7qf6jnealr94irafaae.apps.googleusercontent.com";
+
     MiniaudioMetaReader meta_reader;
     FsAudioStorage audio_storage("../sounds", meta_reader);
     AudioPlayerController player_controller(std::make_unique<MiniaudioPlayer>(), audio_storage);
     PlaybackScheduler scheduler(player_controller, audio_storage);
 
+    GoogleAuthService google_auth(google_client_id);
+    google_auth.AddEmail("kovalchuk.iu_ipz23@rcit.ukr.education");
+
     httplib::Server server;
+
+    server.set_pre_routing_handler([&](const httplib::Request& req, httplib::Response& res) {
+        const std::string auth = req.get_header_value("Authorization");
+        const std::string prefix = "Bearer ";
+
+        if(auth.empty() || !auth.starts_with(prefix))
+        {
+            std::cout << "No token\n";
+            res.status = 401;
+            return httplib::Server::HandlerResponse::Handled;
+        }
+
+        const std::string token = auth.substr(prefix.size());
+
+        if(token.empty() || !google_auth.VerifyIdToken(token))
+        {
+            std::cout << "Token not verified\n";
+            res.status = 401;
+            return httplib::Server::HandlerResponse::Handled;
+        }
+
+        return httplib::Server::HandlerResponse::Unhandled;
+    });
 
     server.Get("/sounds", [&](const httplib::Request& req, httplib::Response& res) {
         std::vector<AudioMeta> sounds = player_controller.GetAvaliableAudios();

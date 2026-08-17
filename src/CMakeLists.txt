@@ -1,3 +1,4 @@
+add_subdirectory(external)
 add_subdirectory(core)
 add_subdirectory(infrastructure)
 add_subdirectory(application)
@@ -5,6 +6,7 @@ add_subdirectory(application)
 add_executable(${PROJECT_NAME} main.cpp)
 
 target_link_libraries(${PROJECT_NAME} PUBLIC
+    httplib
     core
     infrastructure
     application
