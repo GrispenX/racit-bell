@@ -1,47 +1,75 @@
 #include "application/AudioPlayerController.h"
 #include <algorithm>
-#include <stdexcept>
 #include <format>
 
-AudioPlayerController::AudioPlayerController(std::unique_ptr<IAudioPlayer> audio_player, IAudioStorage& audio_storage) :
+AudioPlayerControllerException::AudioPlayerControllerException(AudioPlayerControllerErrorCode code, const std::string& msg) :
+    m_Code(code),
+    m_Message(msg)
+{}
+
+const char* AudioPlayerControllerException::what() const noexcept
+{
+    return m_Message.c_str();
+}
+
+AudioPlayerControllerErrorCode AudioPlayerControllerException::code() const noexcept
+{
+    return m_Code;
+}
+
+
+AudioPlayerController::AudioPlayerController(std::unique_ptr<IAudioPlayer> audio_player, IAudioStorage& audio_storage, IStorage<int, QueuedPlayback>& queued_pb_storage) :
     m_AudioPlayer(std::move(audio_player)),
-    m_AudioStorage(audio_storage)
+    m_AudioStorage(audio_storage),
+    m_Queue(queued_pb_storage)
 {
     m_AudioPlayer->Subscribe(this);
 }
 
 
-void AudioPlayerController::Enqueue(const Playback& playback)
+void AudioPlayerController::Enqueue(const QueuedPlayback& pb)
 {
     std::lock_guard lock(m_Mutex);
     
-    if(!m_AudioStorage.Exists(playback.AudioName))
-        throw std::runtime_error(std::format("Audio with name {} does not exist.", playback.AudioName));
+    if(!m_AudioStorage.Exists(pb.AudioName))
+    {
+        throw AudioPlayerControllerException(
+            AudioPlayerControllerErrorCode::INVALID_AUDIO_NAME,
+            std::format("Audio with name '{}' does not exist.", pb.AudioName)
+        );
+    }
 
     if(!m_AudioPlayer->IsPlaying())
     {
-        StartPlayback(playback);
+        StartPlayback(pb);
     }
-    else if(m_CurrentPlayback.Priority < playback.Priority)
+    else if(m_CurrentPb.Priority < pb.Priority)
     {
         m_AudioPlayer->Stop();
-        StartPlayback(playback);
+        StartPlayback(pb);
     }
     else
     {
-        Playback pb = playback;
-        pb.Time = std::chrono::system_clock::now();
-        m_Queue.Add(pb);
+        QueuedPlayback to_add = pb;
+        to_add.EnqueuedAt = std::chrono::system_clock::now();
+        m_Queue.Add(to_add);
     }
 }
 
 void AudioPlayerController::Dequeue(int id)
 {
     std::lock_guard lock(m_Mutex);
+    if(!m_Queue.Exists(id))
+    {
+        throw AudioPlayerControllerException(
+            AudioPlayerControllerErrorCode::INVALID_ID,
+            std::format("Queued playback with id '{}' does not exist.", id)
+        );
+    }
     m_Queue.Remove(id);
 }
 
-std::vector<Playback> AudioPlayerController::GetQueuedPlaybacks()
+std::vector<QueuedPlayback> AudioPlayerController::GetQueuedPlaybacks()
 {
     std::lock_guard lock(m_Mutex);
     return m_Queue.Get();
@@ -50,8 +78,15 @@ std::vector<Playback> AudioPlayerController::GetQueuedPlaybacks()
 void AudioPlayerController::StopCurrent()
 {
     std::lock_guard lock(m_Mutex);
+    if(!m_AudioPlayer->IsPlaying())
+    {
+        throw AudioPlayerControllerException(
+            AudioPlayerControllerErrorCode::NOTHING_PLAYING,
+            "Nothing is playing right now."
+        );
+    }
     m_AudioPlayer->Stop();
-    std::optional<Playback> next_pb = GetNextPlayback();
+    std::optional<QueuedPlayback> next_pb = GetNextPlayback();
     if(!next_pb.has_value()) return;
     m_Queue.Remove(next_pb->Id);
     StartPlayback(*next_pb);
@@ -59,24 +94,20 @@ void AudioPlayerController::StopCurrent()
 
 void AudioPlayerController::SetVolume(float volume)
 {
+    std::lock_guard lock(m_Mutex);
     m_AudioPlayer->SetVolume(volume);
 }
 
 float AudioPlayerController::GetVolume()
 {
-    return m_AudioPlayer->GetVolume();
-}
-
-std::vector<AudioMeta> AudioPlayerController::GetAvaliableAudios()
-{
     std::lock_guard lock(m_Mutex);
-    return m_AudioStorage.List();
+    return m_AudioPlayer->GetVolume();
 }
 
 void AudioPlayerController::OnPlaybackFinished()
 {
     std::lock_guard lock(m_Mutex);
-    std::optional<Playback> next_pb = GetNextPlayback();
+    std::optional<QueuedPlayback> next_pb = GetNextPlayback();
     if(!next_pb.has_value()) return;
     m_Queue.Remove(next_pb->Id);
     StartPlayback(*next_pb);
@@ -84,20 +115,20 @@ void AudioPlayerController::OnPlaybackFinished()
 
 
 
-std::optional<Playback> AudioPlayerController::GetNextPlayback()
+std::optional<QueuedPlayback> AudioPlayerController::GetNextPlayback()
 {
-    std::vector<Playback> playbacks = m_Queue.Get();
+    std::vector<QueuedPlayback> playbacks = m_Queue.Get();
 
-    if(playbacks.size() == 0) return std::nullopt;
+    if(playbacks.empty()) return std::nullopt;
 
-    std::optional<Playback> selected = std::nullopt;
+    std::optional<QueuedPlayback> selected = std::nullopt;
     for(auto& pb : playbacks)
     {
         if(!m_AudioStorage.Exists(pb.AudioName))
         {
             m_Queue.Remove(pb.Id);
         }
-        else if(!selected.has_value() || pb.Priority > selected->Priority || (pb.Priority == selected->Priority && pb.Time < selected->Time))
+        else if(!selected.has_value() || pb.Priority > selected->Priority || (pb.Priority == selected->Priority && pb.EnqueuedAt < selected->EnqueuedAt))
         {
             selected = pb;
         }
@@ -106,9 +137,9 @@ std::optional<Playback> AudioPlayerController::GetNextPlayback()
     return selected;
 }
 
-void AudioPlayerController::StartPlayback(const Playback& playback)
+void AudioPlayerController::StartPlayback(const QueuedPlayback& pb)
 {
-    m_CurrentPlayback = playback;
-    Audio audio = m_AudioStorage.Get(playback.AudioName);
+    m_CurrentPb = pb;
+    Audio audio = m_AudioStorage.Get(pb.AudioName);
     m_AudioPlayer->Play(audio);
 }

@@ -1,4 +1,6 @@
 add_library(core
+    IAudioPlayer.cpp
+    IStorage.cpp
     JsonSerialization.cpp
 )
 

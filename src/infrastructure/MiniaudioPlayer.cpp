@@ -1,12 +1,13 @@
 #include "infrastructure/MiniaudioPlayer.h"
-#include <stdexcept>
 
 MiniaudioPlayer::MiniaudioPlayer() :
     m_WakeUp(false),
     m_Worker(&MiniaudioPlayer::PostSoundFinished, this)
 {
     if(ma_engine_init(nullptr, &m_Engine) != MA_SUCCESS)
-        throw std::runtime_error("Failed to init miniaudio engine");
+    {
+        throw AudioPlayerException("Failed to initialize miniaudio engine.");
+    }
 }
 
 MiniaudioPlayer::~MiniaudioPlayer()
@@ -24,14 +25,14 @@ void MiniaudioPlayer::Play(const Audio& audio)
     ma_result result = ma_decoder_init_memory(m_CurrentAudio.Data.data(), m_CurrentAudio.Data.size(), nullptr, &m_Decoder);
     if(result != MA_SUCCESS)
     {
-        throw std::runtime_error("Failed to initialize decoder");
+        throw AudioPlayerException("Failed to initialize decoder.");
     }
 
     result = ma_sound_init_from_data_source(&m_Engine, &m_Decoder, 0, nullptr, &m_Sound);
     if(result != MA_SUCCESS)
     {
         ma_decoder_uninit(&m_Decoder);
-        throw std::runtime_error("Failed to initialize sound");
+        throw AudioPlayerException("Failed to initialize sound.");
     }
 
     ma_sound_set_end_callback(&m_Sound, PlaybackFinishedCallback, this);
@@ -40,7 +41,7 @@ void MiniaudioPlayer::Play(const Audio& audio)
     {
         ma_sound_uninit(&m_Sound);
         ma_decoder_uninit(&m_Decoder);
-        throw std::runtime_error("Failed to start sound");
+        throw AudioPlayerException("Failed to start sound.");
     }
 
     m_IsInitialized = true;
@@ -63,8 +64,10 @@ bool MiniaudioPlayer::IsPlaying()
 
 void MiniaudioPlayer::SetVolume(float volume)
 {
-    if(ma_engine_set_volume(&m_Engine, volume))
-        throw std::runtime_error("Failed to set volume");
+    if(ma_engine_set_volume(&m_Engine, volume) != MA_SUCCESS)
+    {
+        throw AudioPlayerException("Failed to set volume.");
+    }
 }
 
 float MiniaudioPlayer::GetVolume()

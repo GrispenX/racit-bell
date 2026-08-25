@@ -1,7 +1,8 @@
 add_library(application
-    AudioPlayerController.cpp
     MiniaudioMetaReader.cpp
-    PlaybackScheduler.cpp
+    AudioPlayerController.cpp
+    DeferredPlaybackService.cpp
+    ScheduleService.cpp
     GoogleAuthService.cpp
 )
 

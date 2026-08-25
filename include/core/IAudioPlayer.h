@@ -3,6 +3,18 @@
 
 #include "core/Audio.h"
 #include "core/IAudioPlayerObserver.h"
+#include <exception>
+#include <string>
+
+class AudioPlayerException : public std::exception
+{
+public:
+    AudioPlayerException(const std::string& msg);
+    const char* what() const noexcept override;
+
+private:
+    std::string m_Message;
+};
 
 class IAudioPlayer
 {
