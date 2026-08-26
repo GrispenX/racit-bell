@@ -1,5 +1,5 @@
 #include "application/MiniaudioMetaReader.h"
-#include <miniaudio/miniaudio.h>
+#include <miniaudio.h>
 #include <stdexcept>
 
 AudioMeta MiniaudioMetaReader::ReadMeta(std::span<const std::byte> audio)

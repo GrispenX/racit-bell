@@ -1,10 +1,15 @@
 #define MINIAUDIO_IMPLEMENTATION
-#include <miniaudio/miniaudio.h>
+#include <miniaudio.h>
+
+#include <filesystem>
+#include <fstream>
+#include <nlohmann/json.hpp>
 
 #include "core/JsonSerialization.h"
 #include "infrastructure/MiniaudioPlayer.h"
 #include "infrastructure/FsAudioStorage.h"
 #include "infrastructure/InMemStorage.h"
+#include "infrastructure/JsonScheduleStorage.h"
 #include "application/MiniaudioMetaReader.h"
 #include "application/AudioPlayerController.h"
 #include "application/DeferredPlaybackService.h"
@@ -13,127 +18,54 @@
 
 #include "httplib.h"
 
-class InMemScheduleStorage : public IStorage<std::string, Schedule>
-{
-public:
-    std::string Add(const Schedule& value) override
-    {
-        std::lock_guard lock(m_Mutex);
-        if(m_Data.find(value.Name) != m_Data.end())
-        {
-            throw StorageException(std::format("Schedule with name '{}' already exists.", value.Name));
-        }
-        m_Data.insert({value.Name, value});
-        return value.Name;
-    }
-
-    void Update(const Schedule& value) override
-    {
-        std::lock_guard lock(m_Mutex);
-        auto it = m_Data.find(value.Name);
-        if(it == m_Data.end())
-        {
-            throw StorageException(std::format("Schedule with id '{}' does not exist.", value.Name));
-        }
-        it->second = value;
-    }
-
-    void Remove(const std::string& name) override
-    {
-        std::lock_guard lock(m_Mutex);
-        if(m_Data.find(name) == m_Data.end())
-        {
-            throw StorageException(std::format("Schedule with id '{}' does not exist.", name));
-        }
-        m_Data.erase(name);
-    }
-
-    bool Exists(const std::string& name) override
-    {
-        std::lock_guard lock(m_Mutex);
-        return m_Data.find(name) != m_Data.end();
-    }
-
-    Schedule Get(const std::string& name) override
-    {
-        std::lock_guard lock(m_Mutex);
-        auto it = m_Data.find(name);
-        if(it == m_Data.end())
-        {
-            throw StorageException(std::format("Schedule with id '{}' does not exist.", name));
-        }
-        return it->second;
-    }
-
-    std::vector<Schedule> Get(std::function<bool(const Schedule&)> predicate) override
-    {
-        std::lock_guard lock(m_Mutex);
-        std::vector<Schedule> suitable;
-        for(auto& [_, value] : m_Data)
-        {
-            if(predicate(value)) suitable.push_back(value);
-        }
-        return suitable;
-    }
-
-    std::vector<Schedule> Get() override
-    {
-        std::lock_guard lock(m_Mutex);
-        std::vector<Schedule> values;
-        for(auto& [_, value] : m_Data)
-        {
-            values.push_back(value);
-        }
-        return values;
-    }
-
-private:
-    std::unordered_map<std::string, Schedule> m_Data;
-    std::mutex m_Mutex;
-};
-
 int main()
 {
-    // const std::string google_client_id = "191974541456-4qb5q4apnds2f7qf6jnealr94irafaae.apps.googleusercontent.com";
+    const std::filesystem::path base_path("server-data");
+    std::ifstream file(base_path / "config.json");
+    const nlohmann::json config = nlohmann::json::parse(file);
+    const std::string google_client_id = config["google_client_id"];
+    const std::set<std::string> allowed_emails = config["allowed_emails"];
+    const bool use_auth = config["use_auth"];
+    const int port = config["port"];
 
     MiniaudioMetaReader meta_reader;
-    FsAudioStorage audio_storage("../sounds", meta_reader);
+    FsAudioStorage audio_storage(base_path / "sounds", meta_reader);
 
     InMemStorage<QueuedPlayback> q_pb_storage;
     InMemStorage<DeferredPlayback> d_pb_storage;
-    InMemScheduleStorage schedule_storage;
+    JsonScheduleStorage schedule_storage(base_path / "schedules.json");
 
     AudioPlayerController player_controller(std::make_unique<MiniaudioPlayer>(), audio_storage, q_pb_storage);
     DeferredPlaybackService deferred_pb_serv(d_pb_storage, player_controller, audio_storage);
     ScheduleService schedule_serv(schedule_storage, player_controller, audio_storage);
 
-    // GoogleAuthService google_auth(google_client_id);
-    // google_auth.AddEmail("kovalchuk.iu_ipz23@rcit.ukr.education");
+    GoogleAuthService google_auth(google_client_id, allowed_emails);
 
     httplib::Server server;
 
-    // server.set_pre_routing_handler([&](const httplib::Request& req, httplib::Response& res) {
-    //     const std::string auth = req.get_header_value("Authorization");
-    //     const std::string prefix = "Bearer ";
-
-    //     if(auth.empty() || !auth.starts_with(prefix))
-    //     {
-    //         std::cout << "No token\n";
-    //         res.status = 401;
-    //         return httplib::Server::HandlerResponse::Handled;
-    //     }
-
-    //     const std::string token = auth.substr(prefix.size());
-
-    //     if(token.empty() || !google_auth.VerifyIdToken(token))
-    //     {
-    //         std::cout << "Token not verified\n";
-    //         res.status = 401;
-    //         return httplib::Server::HandlerResponse::Handled;
-    //     }
-
-    //     return httplib::Server::HandlerResponse::Unhandled;
-    // });
+    if(use_auth)
+    {
+        server.set_pre_routing_handler([&](const httplib::Request& req, httplib::Response& res) {
+            const std::string auth = req.get_header_value("Authorization");
+            const std::string prefix = "Bearer ";
+    
+            if(auth.empty() || !auth.starts_with(prefix))
+            {
+                res.status = 401;
+                return httplib::Server::HandlerResponse::Handled;
+            }
+    
+            const std::string token = auth.substr(prefix.size());
+    
+            if(token.empty() || !google_auth.VerifyIdToken(token))
+            {
+                res.status = 401;
+                return httplib::Server::HandlerResponse::Handled;
+            }
+    
+            return httplib::Server::HandlerResponse::Unhandled;
+        });
+    }
 
     server.set_exception_handler([&](const httplib::Request& req, httplib::Response& res, std::exception_ptr ep) {
         try
@@ -180,6 +112,7 @@ int main()
         {
             res.status = 500;
             res.set_content("Internal server error", "text/plain");
+            std::cerr << e.what() << "\n";
         }
         
     });
@@ -311,5 +244,5 @@ int main()
         schedule_serv.RemoveSchedule(name);
     });
 
-    server.listen("0.0.0.0", 8080);
+    server.listen("0.0.0.0", port);
 }

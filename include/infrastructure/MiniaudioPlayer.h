@@ -3,7 +3,7 @@
 
 #include "core/IAudioPlayer.h"
 #include <vector>
-#include <miniaudio/miniaudio.h>
+#include <miniaudio.h>
 #include <thread>
 #include <condition_variable>
 

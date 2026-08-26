@@ -3,8 +3,9 @@
 #include "jwt.h"
 #include "traits/nlohmann-json/defaults.h"
 
-GoogleAuthService::GoogleAuthService(const std::string& client_id) :
-    m_ClientId(client_id)
+GoogleAuthService::GoogleAuthService(const std::string& client_id, const std::set<std::string>& emails) :
+    m_ClientId(client_id),
+    m_EmailWhitelist(emails)
 {
     FetchKeys();
 }
@@ -46,12 +47,6 @@ bool GoogleAuthService::VerifyIdToken(const std::string& token)
         return false;
     }
 }
-
-void GoogleAuthService::AddEmail(const std::string& email)
-{
-    m_EmailWhitelist.insert(email);
-}
-
 
 
 std::optional<std::string> GoogleAuthService::GetKey(const std::string& kid)

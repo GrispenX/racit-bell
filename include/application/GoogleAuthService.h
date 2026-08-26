@@ -10,11 +10,9 @@
 class GoogleAuthService
 {
 public:
-    GoogleAuthService(const std::string& client_id);
+    GoogleAuthService(const std::string& client_id, const std::set<std::string>& emails);
 
-    // Returns email if verified
     bool VerifyIdToken(const std::string& token);
-    void AddEmail(const std::string& email);
 
 private:
     std::string m_ClientId;

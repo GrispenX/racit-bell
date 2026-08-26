@@ -1,4 +1,5 @@
 add_library(infrastructure
+    JsonScheduleStorage.cpp
     FsAudioStorage.cpp
     MiniaudioPlayer.cpp
 )

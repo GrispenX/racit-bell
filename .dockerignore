@@ -1,3 +1,5 @@
-build/
+.git
 .vscode
+build
 server-data
+API.md
