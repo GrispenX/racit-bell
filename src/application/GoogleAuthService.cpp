@@ -51,11 +51,18 @@ bool GoogleAuthService::VerifyIdToken(const std::string& token)
 
 std::optional<std::string> GoogleAuthService::GetKey(const std::string& kid)
 {
-    if(std::chrono::system_clock::now() < m_KeysExpiresAt)
+    bool keys_expired;
+    {
+        std::lock_guard lock(m_KeysMutex);
+        keys_expired = std::chrono::system_clock::now() > m_KeysExpiresAt;
+    }
+
+    if(keys_expired)
     {
         FetchKeys();
     }
 
+    std::lock_guard lock(m_KeysMutex);
     if(!m_Keys.contains(kid) || !m_Keys[kid].is_string())
     {
         return std::nullopt;
@@ -72,7 +79,7 @@ void GoogleAuthService::FetchKeys()
     {
         return;
     }
-    m_Keys = nlohmann::json::parse(response->body);
+    nlohmann::json keys = nlohmann::json::parse(response->body);
 
     std::string cache_control = response->get_header_value("Cache-Control");
     const std::string prefix = "max-age=";
@@ -81,5 +88,11 @@ void GoogleAuthService::FetchKeys()
     const auto end = cache_control.find(',', begin);
     const std::string value = cache_control.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
     const long long seconds = std::stoll(value);
-    m_KeysExpiresAt = std::chrono::system_clock::now() + std::chrono::seconds(seconds);
+    const auto expires_at = std::chrono::system_clock::now() + std::chrono::seconds(seconds);
+
+    {
+        std::lock_guard lock(m_KeysMutex);
+        m_Keys = std::move(keys);
+        m_KeysExpiresAt = expires_at;
+    }
 }

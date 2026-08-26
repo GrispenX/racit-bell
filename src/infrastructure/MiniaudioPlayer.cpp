@@ -2,8 +2,9 @@
 
 MiniaudioPlayer::MiniaudioPlayer() :
     m_WakeUp(false),
-    m_Worker(&MiniaudioPlayer::PostSoundFinished, this)
+    m_Stop(false)
 {
+    m_Worker = std::thread(&MiniaudioPlayer::PostSoundFinished, this);
     if(ma_engine_init(nullptr, &m_Engine) != MA_SUCCESS)
     {
         throw AudioPlayerException("Failed to initialize miniaudio engine.");

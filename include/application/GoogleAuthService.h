@@ -5,6 +5,7 @@
 #include <chrono>
 #include <optional>
 #include <set>
+#include <mutex>
 #include <nlohmann/json.hpp>
 
 class GoogleAuthService
@@ -19,6 +20,7 @@ private:
 
     nlohmann::json m_Keys;
     std::chrono::system_clock::time_point m_KeysExpiresAt;
+    std::mutex m_KeysMutex;
     std::optional<std::string> GetKey(const std::string& kid);
     void FetchKeys();
 

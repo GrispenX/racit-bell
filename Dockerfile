@@ -27,6 +27,6 @@ WORKDIR /
 
 COPY --from=build /build/src/bell /usr/local/bin/bell
 
-EXPOSE 8080
+EXPOSE 80
 
 CMD ["/usr/local/bin/bell"]

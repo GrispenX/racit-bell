@@ -129,10 +129,10 @@ int main()
             audio = audio_storage.Get(req.matches[1]);
             res.set_content(reinterpret_cast<const char*>(audio.Data.data()), audio.Data.size(), "application/octet-stream");
         }
-        catch(const StorageException& e)
+        catch(const std::runtime_error& e)
         {
             res.status = 404;
-            res.set_content("Audio not found.", "text/plain");
+            res.set_content(e.what(), "text/plain");
         }
     });
 
@@ -146,12 +146,22 @@ int main()
         const auto& file = req.form.get_file("file");
         std::vector<std::byte> audio_data(file.content.size());
         memcpy(audio_data.data(), file.content.data(), file.content.size());
+        
+        ma_decoder decoder;
+        if(ma_decoder_init_memory(audio_data.data(), audio_data.size(), nullptr, &decoder) != MA_SUCCESS)
+        {
+            res.status = 400;
+            res.set_content("Bad or unsupported audio.", "text/plain");
+        }
+        ma_decoder_uninit(&decoder);
+
         Audio audio = {
             .Meta = {
                 .Name = file.filename
             },
             .Data = audio_data
         };
+        
         audio_storage.Add(audio);
     });
 
