@@ -1,0 +1,21 @@
+services:
+  backend:
+    build:
+      context: ./app
+    volumes:
+      - ./app/server-data:/server-data
+      - $XDG_RUNTIME_DIR/pulse/native:/tmp/pulse/native
+    environment:
+      PULSE_SERVER: unix:/tmp/pulse/native
+    expose:
+      - "80"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_GOOGLE_CLIENT_ID: 191974541456-4qb5q4apnds2f7qf6jnealr94irafaae.apps.googleusercontent.com
+    depends_on:
+      - backend
+    ports:
+      - "${PORT:-8080}:80"
